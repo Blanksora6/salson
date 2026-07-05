@@ -1,0 +1,32 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+appsettings.Development.json
+appsettings.*.json
+!appsettings.json
+
+# Entity Framework
+*.db
+*.sqlite
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+
+# NuGet
+*.nupkg
+packages/
+
+# React
+salson-client/node_modules/
+salson-client/build/
+salson-client/.env
+salson-client/.env.local
+salson-client/npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
