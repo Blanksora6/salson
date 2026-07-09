@@ -13,10 +13,11 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("ReactApp", policy =>
     {
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins("http://localhost:3000", "http://localhost:5187")
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials();
+              .AllowCredentials()
+              .SetIsOriginAllowed(_ => true);
     });
 });
 
@@ -31,16 +32,16 @@ builder.Services.AddAuthentication(options =>
     options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
 })
-    .AddCookie(options =>
+.AddCookie(options =>
+{
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.None;
+    options.Events.OnRedirectToLogin = context =>
     {
-        options.Cookie.SameSite = SameSiteMode.None;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-        options.Events.OnRedirectToLogin = context =>
-        {
-            context.Response.StatusCode = 401;
-            return Task.CompletedTask;
-        };
-    })
+        context.Response.StatusCode = 401;
+        return Task.CompletedTask;
+    };
+})
 .AddGoogle(options =>
 {
     options.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
@@ -61,10 +62,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
 app.UseCors("ReactApp");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
-app.MapHub<KahootHub>("/hubs/kahoot");
+app.MapHub<KahootHub>("/hubs/kahoot")
+   .RequireCors("ReactApp");
 app.Run();
