@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 function LandingPage() {
   const navigate = useNavigate();
 
-  const handleHost = () => {
-  window.location.href = 'https://localhost:7296/api/auth/login';
+ const handleHost = () => {
+  window.location.href = 'http://localhost:5187/api/auth/login';
 };
 
   const handleJoin = () => {
