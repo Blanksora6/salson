@@ -15,6 +15,80 @@ public class KahootHub : Hub
         _db = db;
     }
 
+    // called by host when they open the lobby
+    public async Task JoinAsHost(string sessionId)
+    {
+        var id = Guid.Parse(sessionId);
+        var session = await _db.GameSessions
+            .FirstOrDefaultAsync(s => s.Id == id);
+
+        if (session == null)
+        {
+            await Clients.Caller.SendAsync("Error", "Session not found.");
+            return;
+        }
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, session.JoinCode);
+    }
+
+    // called by host game screen to get the current question after mounting
+    public async Task GetCurrentQuestion(string sessionId)
+    {
+        var id = Guid.Parse(sessionId);
+        var session = await _db.GameSessions
+            .Include(s => s.Quiz)
+            .ThenInclude(q => q.Questions)
+            .ThenInclude(q => q.Options)
+            .FirstOrDefaultAsync(s => s.Id == id);
+
+        if (session == null || session.Status != SessionStatus.Active) return;
+
+        var questions = session.Quiz.Questions
+            .OrderBy(q => q.OrderIndex)
+            .ToList();
+
+        var answeredQuestionIds = await _db.ParticipantAnswers
+            .Where(a => a.Question.QuizId == session.QuizId)
+            .Select(a => a.QuestionId)
+            .Distinct()
+            .ToListAsync();
+
+        var currentIndex = Math.Min(answeredQuestionIds.Count, questions.Count - 1);
+        var currentQuestion = questions[currentIndex];
+
+        await SendQuestion(session.JoinCode, currentQuestion, currentIndex, questions.Count);
+    }
+
+    // called by player when PlayerGame mounts to rejoin the SignalR group
+    public async Task RejoinSession(string joinCode)
+    {
+        var session = await _db.GameSessions
+            .FirstOrDefaultAsync(s => s.JoinCode == joinCode);
+
+        if (session == null) return;
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, joinCode);
+
+        var participant = await _db.GameParticipants
+            .Where(p => p.SessionId == session.Id && p.UserId == null)
+            .OrderByDescending(p => p.JoinedAt)
+            .FirstOrDefaultAsync();
+
+        if (participant != null)
+        {
+            Context.Items["ParticipantId"] = participant.Id;
+            Context.Items["SessionId"] = session.Id;
+            Context.Items["JoinCode"] = joinCode;
+        }
+
+        // send session info back to the player so they have the sessionId
+        await Clients.Caller.SendAsync("SessionJoined", new
+        {
+            SessionId = session.Id,
+            ParticipantId = participant?.Id
+        });
+    }
+
     // called by player to join the lobby
     public async Task JoinSession(string joinCode, string nickname)
     {
@@ -29,10 +103,8 @@ public class KahootHub : Hub
             return;
         }
 
-        // add player to SignalR group for this session
         await Groups.AddToGroupAsync(Context.ConnectionId, joinCode);
 
-        // save participant to DB
         var participant = new GameParticipant
         {
             Id = Guid.NewGuid(),
@@ -46,18 +118,15 @@ public class KahootHub : Hub
         _db.GameParticipants.Add(participant);
         await _db.SaveChangesAsync();
 
-        // store participantId in connection context for later use
         Context.Items["ParticipantId"] = participant.Id;
         Context.Items["SessionId"] = session.Id;
         Context.Items["JoinCode"] = joinCode;
 
-        // get updated player list
         var players = await _db.GameParticipants
             .Where(p => p.SessionId == session.Id)
             .Select(p => new { p.Id, p.Nickname })
             .ToListAsync();
 
-        // broadcast updated lobby to everyone in the group
         await Clients.Group(joinCode).SendAsync("LobbyUpdated", players);
     }
 
@@ -91,7 +160,6 @@ public class KahootHub : Hub
             return;
         }
 
-        // send first question to everyone in the group
         await SendQuestion(session.JoinCode, questions[0], 0, questions.Count);
     }
 
@@ -113,7 +181,6 @@ public class KahootHub : Hub
 
         if (questionIndex >= questions.Count)
         {
-            // no more questions — end the game
             await EndGame(sessionId);
             return;
         }
@@ -144,13 +211,11 @@ public class KahootHub : Hub
         var selectedOption = question.Options.FirstOrDefault(o => o.Id == oId);
         if (selectedOption == null) return;
 
-        // check if already answered
         var alreadyAnswered = await _db.ParticipantAnswers
             .AnyAsync(a => a.ParticipantId == participantId && a.QuestionId == qId);
 
         if (alreadyAnswered) return;
 
-        // calculate points — faster answer = more points
         var isCorrect = selectedOption.IsCorrect;
         var answeredAtMs = (int)(DateTime.UtcNow - DateTime.UtcNow.Date).TotalMilliseconds;
         var pointsAwarded = isCorrect ? question.Points : 0;
@@ -168,14 +233,12 @@ public class KahootHub : Hub
 
         _db.ParticipantAnswers.Add(answer);
 
-        // update total score
         var participant = await _db.GameParticipants.FindAsync(participantId.Value);
         if (participant != null)
             participant.TotalScore += pointsAwarded;
 
         await _db.SaveChangesAsync();
 
-        // tell the player if they were correct
         await Clients.Caller.SendAsync("AnswerResult", new
         {
             IsCorrect = isCorrect,
@@ -183,7 +246,6 @@ public class KahootHub : Hub
             TotalScore = participant?.TotalScore ?? 0
         });
 
-        // broadcast updated leaderboard to everyone
         var joinCode = Context.Items["JoinCode"] as string;
         if (joinCode != null)
             await BroadcastLeaderboard(joinCode, sId);
@@ -223,7 +285,6 @@ public class KahootHub : Hub
                 o.Id,
                 o.Text,
                 o.OrderIndex
-                // never send IsCorrect to clients
             })
         };
 

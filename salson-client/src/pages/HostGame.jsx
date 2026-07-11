@@ -3,6 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import { useAuth } from '../hooks/useAuth';
 
+const waitForConnection = (conn, callback) => {
+  if (conn.state === 'Connected') {
+    callback();
+  } else {
+    setTimeout(() => waitForConnection(conn, callback), 200);
+  }
+};
+
 function HostGame() {
   const { sessionId } = useParams();
   const { user, loading } = useAuth();
@@ -20,7 +28,7 @@ function HostGame() {
 
   useEffect(() => {
     if (!loading && !user) {
-      window.location.href = 'https://localhost:7296/api/auth/login';
+      window.location.href = 'http://localhost:5187/api/auth/login';
     }
   }, [user, loading]);
 
@@ -31,6 +39,13 @@ function HostGame() {
       })
       .withAutomaticReconnect()
       .build();
+
+    conn.onreconnected(() => {
+      waitForConnection(conn, () => {
+        conn.invoke('JoinAsHost', sessionId).catch(console.error);
+        conn.invoke('GetCurrentQuestion', sessionId).catch(console.error);
+      });
+    });
 
     conn.on('QuestionStarted', (q) => {
       setQuestion(q);
@@ -54,10 +69,23 @@ function HostGame() {
     });
 
     conn.start()
-      .then(() => setConnection(conn))
-      .catch(() => setError('Failed to connect to game server.'));
+      .then(() => {
+        setConnection(conn);
+        waitForConnection(conn, () => {
+          conn.invoke('JoinAsHost', sessionId).catch(console.error);
+          conn.invoke('GetCurrentQuestion', sessionId).catch(console.error);
+        });
+      })
+      .catch(() => {
+        setConnection(conn);
+        waitForConnection(conn, () => {
+          conn.invoke('JoinAsHost', sessionId).catch(console.error);
+          conn.invoke('GetCurrentQuestion', sessionId).catch(console.error);
+        });
+      });
 
     return () => conn.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   useEffect(() => {
@@ -116,7 +144,6 @@ function HostGame() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
 
-      {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <h1 className="text-xl font-black text-gray-900">
           Sal<span className="text-primary">son</span>
@@ -137,7 +164,6 @@ function HostGame() {
 
       <div className="flex-1 flex flex-col lg:flex-row gap-6 p-6">
 
-        {/* Question panel */}
         <div className="flex-1">
           {question ? (
             <>
@@ -187,7 +213,6 @@ function HostGame() {
           )}
         </div>
 
-        {/* Leaderboard panel */}
         <div className="w-full lg:w-72">
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
             <h2 className="font-bold text-gray-700 mb-3">Leaderboard</h2>
