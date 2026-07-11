@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { HubConnectionBuilder } from '@microsoft/signalr';
 import { api } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 
@@ -8,12 +9,15 @@ function HostLobby() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const [session, setSession] = useState(null);
-  const [participants] = useState([]);
+  const [connection, setConnection] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [participants, setParticipants] = useState([]);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!loading && !user) {
-      window.location.href = 'https://localhost:7296/api/auth/login';
+      window.location.href = 'http://localhost:5187/api/auth/login';
     }
   }, [user, loading]);
 
@@ -25,8 +29,54 @@ function HostLobby() {
     }
   }, [sessionId]);
 
-  const handleStartGame = () => {
-    navigate(`/host/game/${sessionId}`);
+  useEffect(() => {
+    const conn = new HubConnectionBuilder()
+      .withUrl('http://localhost:5187/hubs/kahoot', {
+        withCredentials: true
+      })
+      .withAutomaticReconnect()
+      .build();
+
+    conn.onreconnected(() => {
+      setConnected(true);
+      conn.invoke('JoinAsHost', sessionId).catch(console.error);
+    });
+
+    conn.on('LobbyUpdated', (players) => {
+      setParticipants(players);
+    });
+
+    conn.on('QuestionStarted', () => {
+      navigate(`/host/game/${sessionId}`);
+    });
+
+    conn.on('Error', (msg) => {
+      setError(typeof msg === 'string' ? msg : 'An error occurred.');
+    });
+
+    conn.start()
+      .then(() => {
+        setConnection(conn);
+        setConnected(true);
+        conn.invoke('JoinAsHost', sessionId).catch(console.error);
+      })
+      .catch(() => {
+        setConnection(conn);
+      });
+
+    return () => conn.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, navigate]);
+
+  const handleStartGame = async () => {
+    if (!connection || !connected || !sessionId) return;
+    try {
+      setStarting(true);
+      await connection.invoke('StartGame', sessionId);
+    } catch (err) {
+      setError('Failed to start game: ' + err.message);
+      setStarting(false);
+    }
   };
 
   if (loading || !session) return (
@@ -38,7 +88,6 @@ function HostLobby() {
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
 
-      {/* Header */}
       <div className="mb-10 text-center">
         <h1 className="text-4xl font-black text-gray-900">
           Sal<span className="text-primary">son</span>
@@ -46,7 +95,6 @@ function HostLobby() {
         <p className="text-gray-500 mt-2">Share this code with your players</p>
       </div>
 
-      {/* Join Code */}
       <div className="bg-white rounded-3xl border border-gray-200 shadow-lg px-16 py-10 mb-8 text-center">
         <p className="text-gray-400 text-sm uppercase tracking-widest mb-2">Game PIN</p>
         <p className="text-7xl font-black text-gray-900 tracking-widest">
@@ -57,18 +105,15 @@ function HostLobby() {
         </p>
       </div>
 
-      {/* Players */}
       <div className="w-full max-w-lg mb-8">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-gray-600 font-semibold">
-            Players joined
-          </p>
+          <p className="text-gray-600 font-semibold">Players joined</p>
           <span className="bg-primary text-white text-sm font-bold px-3 py-1 rounded-full">
-            {session.participantCount}
+            {participants.length}
           </span>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-4 min-h-24 flex flex-wrap gap-2">
-          {session.participantCount === 0 ? (
+          {participants.length === 0 ? (
             <p className="text-gray-400 text-sm w-full text-center py-4">
               Waiting for players to join...
             </p>
@@ -91,12 +136,12 @@ function HostLobby() {
         </div>
       )}
 
-      {/* Start Button */}
       <button
         onClick={handleStartGame}
-        className="w-full max-w-lg py-4 bg-accent hover:bg-yellow-500 text-white text-xl font-bold rounded-2xl transition-colors shadow-md"
+        disabled={starting || !connected}
+        className="w-full max-w-lg py-4 bg-accent hover:bg-yellow-500 text-white text-xl font-bold rounded-2xl transition-colors shadow-md disabled:opacity-50"
       >
-        Start Game →
+        {starting ? 'Starting...' : connected ? 'Start Game →' : 'Connecting...'}
       </button>
 
     </div>

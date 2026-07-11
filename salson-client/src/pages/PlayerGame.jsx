@@ -1,13 +1,21 @@
 import { useState, useEffect } from 'react';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { HubConnectionBuilder } from '@microsoft/signalr';
 
+const waitForConnection = (conn, callback) => {
+  if (conn.state === 'Connected') {
+    callback();
+  } else {
+    setTimeout(() => waitForConnection(conn, callback), 200);
+  }
+};
+
 function PlayerGame() {
-  const { joinCode } = useParams();
   const { state } = useLocation();
   const navigate = useNavigate();
 
   const [connection, setConnection] = useState(null);
+  const [sessionId, setSessionId] = useState('');
   const [status, setStatus] = useState('waiting');
   const [question, setQuestion] = useState(null);
   const [selectedOption, setSelectedOption] = useState(null);
@@ -19,6 +27,7 @@ function PlayerGame() {
   const [error, setError] = useState(null);
 
   const nickname = state?.nickname || 'Player';
+  const joinCode = state?.joinCode || '';
 
   useEffect(() => {
     const conn = new HubConnectionBuilder()
@@ -27,6 +36,18 @@ function PlayerGame() {
       })
       .withAutomaticReconnect()
       .build();
+
+    conn.onreconnected(() => {
+      waitForConnection(conn, () => {
+        if (joinCode) {
+          conn.invoke('RejoinSession', joinCode).catch(console.error);
+        }
+      });
+    });
+
+    conn.on('SessionJoined', (data) => {
+      setSessionId(data.sessionId);
+    });
 
     conn.on('QuestionStarted', (q) => {
       setQuestion(q);
@@ -52,14 +73,29 @@ function PlayerGame() {
     });
 
     conn.on('Error', (msg) => {
-      setError(msg);
+      setError(typeof msg === 'string' ? msg : 'An error occurred.');
     });
 
     conn.start()
-      .then(() => setConnection(conn))
-      .catch(() => setError('Failed to connect to game server.'));
+      .then(() => {
+        setConnection(conn);
+        waitForConnection(conn, () => {
+          if (joinCode) {
+            conn.invoke('RejoinSession', joinCode).catch(console.error);
+          }
+        });
+      })
+      .catch(() => {
+        setConnection(conn);
+        waitForConnection(conn, () => {
+          if (joinCode) {
+            conn.invoke('RejoinSession', joinCode).catch(console.error);
+          }
+        });
+      });
 
     return () => conn.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -69,12 +105,12 @@ function PlayerGame() {
   }, [timeLeft, status]);
 
   const handleAnswer = async (optionId) => {
-    if (selectedOption || !connection || !question) return;
+    if (selectedOption || !connection || !question || !sessionId) return;
     setSelectedOption(optionId);
 
     try {
       await connection.invoke('SubmitAnswer',
-        state?.participant?.sessionId || '',
+        sessionId,
         question.questionId.toString(),
         optionId.toString()
       );
@@ -149,7 +185,6 @@ function PlayerGame() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
 
-      {/* Top bar */}
       <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
         <span className="font-bold text-gray-700">{nickname}</span>
         <span className="text-2xl font-black text-primary">{score} pts</span>
@@ -160,7 +195,6 @@ function PlayerGame() {
         )}
       </div>
 
-      {/* Question */}
       <div className="flex-1 flex flex-col px-4 py-6">
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6 text-center">
           <p className="text-xs text-gray-400 uppercase tracking-widest mb-2">
