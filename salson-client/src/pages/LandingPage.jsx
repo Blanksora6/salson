@@ -41,10 +41,6 @@ function LandingPage() {
         </button>
       </div>
 
-      {/* Footer */}
-      <p className="mt-16 text-gray-400 text-sm">
-        Built with React + .NET + SignalR
-      </p>
     </div>
   );
 }

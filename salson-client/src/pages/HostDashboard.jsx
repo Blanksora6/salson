@@ -43,6 +43,16 @@ function HostDashboard() {
     navigate('/');
   };
 
+  const handleDeleteQuiz = async (quizId) => {
+    if (!window.confirm('Delete this quiz? This cannot be undone.')) return;
+    try {
+      await api.deleteQuiz(quizId);
+      setQuizzes(prev => prev.filter(q => q.id !== quizId));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   if (loading) return (
     <div className="min-h-screen bg-background flex items-center justify-center">
       <p className="text-gray-500 text-lg">Loading...</p>
@@ -71,6 +81,12 @@ function HostDashboard() {
       <main className="max-w-4xl mx-auto px-6 py-10">
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-3xl font-bold text-gray-900">Your Quizzes</h2>
+          <button
+            onClick={() => navigate('/host/quiz/create')}
+            className="px-6 py-3 bg-primary hover:bg-primary-dark text-white font-bold rounded-xl transition-colors"
+          >
+            + New Quiz
+          </button>
         </div>
 
         {error && (
@@ -95,16 +111,30 @@ function HostDashboard() {
               >
                 <h3 className="text-xl font-bold text-gray-900 mb-1">{quiz.title}</h3>
                 <p className="text-gray-500 text-sm mb-1">{quiz.description || 'No description'}</p>
-                  <p className="text-gray-400 text-xs mb-4">
-                    {quiz.questionCount} {quiz.questionCount === 1 ? 'question' : 'questions'}
-                  </p>
-                <button
-                  onClick={() => handleHostQuiz(quiz.id)}
-                  disabled={creating}
-                  className="w-full py-3 bg-primary hover:bg-primary-dark text-white font-bold rounded-xl transition-colors disabled:opacity-50"
-                >
-                  {creating ? 'Starting...' : 'Host This Quiz'}
-                </button>
+                <p className="text-gray-400 text-xs mb-4">
+                  {quiz.questionCount} {quiz.questionCount === 1 ? 'question' : 'questions'}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => navigate(`/host/quiz/${quiz.id}/edit`)}
+                    className="flex-1 py-3 border-2 border-primary text-primary hover:bg-primary hover:text-white font-bold rounded-xl transition-colors text-sm"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleHostQuiz(quiz.id)}
+                    disabled={creating}
+                    className="flex-1 py-3 bg-primary hover:bg-primary-dark text-white font-bold rounded-xl transition-colors disabled:opacity-50 text-sm"
+                  >
+                    {creating ? 'Starting...' : 'Host'}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteQuiz(quiz.id)}
+                    className="py-3 px-4 border-2 border-danger text-danger hover:bg-danger hover:text-white font-bold rounded-xl transition-colors text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             ))}
           </div>
