@@ -24,12 +24,10 @@ public class QuestionController : ControllerBase
     {
         var googleId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (googleId == null) return null;
-
         var user = await _db.Users.FirstOrDefaultAsync(u => u.GoogleId == googleId);
         return user?.Id;
     }
 
-    // checks the quiz exists AND belongs to the logged-in user
     private async Task<(Quiz? quiz, ActionResult? error)> GetOwnedQuizAsync(Guid quizId)
     {
         var userId = await GetCurrentUserIdAsync();
@@ -190,12 +188,22 @@ public class QuestionController : ControllerBase
         if (error != null) return error;
 
         var question = await _db.Questions
+            .Include(q => q.Options)
+                .ThenInclude(o => o.ParticipantAnswers)
+            .Include(q => q.Answers)
             .FirstOrDefaultAsync(q => q.Id == id && q.QuizId == quizId);
 
         if (question == null)
             return NotFound($"Question {id} not found in quiz {quizId}.");
 
+        foreach (var option in question.Options)
+        {
+            _db.ParticipantAnswers.RemoveRange(option.ParticipantAnswers);
+        }
+        _db.ParticipantAnswers.RemoveRange(question.Answers);
+        _db.AnswerOptions.RemoveRange(question.Options);
         _db.Questions.Remove(question);
+
         await _db.SaveChangesAsync();
         return NoContent();
     }

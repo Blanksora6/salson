@@ -1,4 +1,5 @@
 const BASE_URL = 'http://localhost:5187';
+
 const request = async (path, options = {}) => {
   const response = await fetch(`${BASE_URL}${path}`, {
     ...options,
