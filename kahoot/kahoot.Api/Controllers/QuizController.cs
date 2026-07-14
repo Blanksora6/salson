@@ -20,12 +20,10 @@ public class QuizController : ControllerBase
         _db = db;
     }
 
-    // helper — gets the logged-in user's internal Id from their Google claim
     private async Task<Guid?> GetCurrentUserIdAsync()
     {
         var googleId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (googleId == null) return null;
-
         var user = await _db.Users.FirstOrDefaultAsync(u => u.GoogleId == googleId);
         return user?.Id;
     }
@@ -134,7 +132,6 @@ public class QuizController : ControllerBase
         quiz.IsPublic = dto.IsPublic;
 
         await _db.SaveChangesAsync();
-
         return NoContent();
     }
 
@@ -146,7 +143,13 @@ public class QuizController : ControllerBase
         var userId = await GetCurrentUserIdAsync();
         if (userId == null) return Unauthorized();
 
-        var quiz = await _db.Quizzes.FindAsync(id);
+        var quiz = await _db.Quizzes
+            .Include(q => q.Questions)
+                .ThenInclude(q => q.Options)
+            .Include(q => q.Sessions)
+                .ThenInclude(s => s.Participants)
+                    .ThenInclude(p => p.Answers)
+            .FirstOrDefaultAsync(q => q.Id == id);
 
         if (quiz == null)
             return NotFound($"Quiz with id {id} not found.");
@@ -154,9 +157,37 @@ public class QuizController : ControllerBase
         if (quiz.HostId != userId)
             return Forbid();
 
-        _db.Quizzes.Remove(quiz);
-        await _db.SaveChangesAsync();
+        // delete participant answers via sessions
+        foreach (var session in quiz.Sessions)
+        {
+            foreach (var participant in session.Participants)
+            {
+                _db.ParticipantAnswers.RemoveRange(participant.Answers);
+            }
+            _db.GameParticipants.RemoveRange(session.Participants);
+        }
+        _db.GameSessions.RemoveRange(quiz.Sessions);
 
+        // delete participant answers via questions/options
+        var questionIds = quiz.Questions.Select(q => q.Id).ToList();
+        var optionIds = quiz.Questions
+            .SelectMany(q => q.Options)
+            .Select(o => o.Id)
+            .ToList();
+
+        var remainingAnswers = await _db.ParticipantAnswers
+            .Where(a => questionIds.Contains(a.QuestionId) ||
+                        optionIds.Contains(a.SelectedOptionId))
+            .ToListAsync();
+        _db.ParticipantAnswers.RemoveRange(remainingAnswers);
+
+        // delete options and questions
+        var options = quiz.Questions.SelectMany(q => q.Options).ToList();
+        _db.AnswerOptions.RemoveRange(options);
+        _db.Questions.RemoveRange(quiz.Questions);
+        _db.Quizzes.Remove(quiz);
+
+        await _db.SaveChangesAsync();
         return NoContent();
     }
 }
