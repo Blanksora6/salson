@@ -1,70 +1,110 @@
-# Getting Started with Create React App
+# Salson
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A real-time multiplayer quiz platform built with .NET 10, SignalR, React, and Google OAuth. Hosts create quizzes, generate a live game PIN, and players join from any device to answer questions in real time with live scoring and leaderboards.
 
-## Available Scripts
+## Demo Flow
 
-In the project directory, you can run:
+1. Host logs in with Google → creates a quiz with questions
+2. Host starts a game → gets a 6-digit PIN
+3. Players go to the join page → enter PIN and nickname
+4. Host starts the game → questions broadcast to all players simultaneously
+5. Players tap answers → scores update in real time
+6. Game ends → leaderboard shown to everyone
 
-### `npm start`
+## Tech Stack
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+| Layer | Technology |
+|---|---|
+| Backend | .NET 10, ASP.NET Core Web API |
+| Real-time | SignalR (WebSockets) |
+| Database | SQL Server (LocalDB for development) |
+| ORM | Entity Framework Core 10 |
+| Auth | Google OAuth 2.0 (cookie-based) |
+| Frontend | React 18, Tailwind CSS 3 |
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Project Structure
+Kahoot clone/
+├── kahoot/                     # .NET solution
+│   ├── kahoot.Api/             # Controllers, SignalR hub, Program.cs
+│   ├── kahoot.Core/            # Entity models, DTOs
+│   └── kahoot.Infrastructure/  # EF Core DbContext, migrations
+└── salson-client/              # React frontend
+└── src/
+├── pages/              # Route-level components
+├── hooks/              # useAuth
+└── services/           # api.js (fetch), signalr.js
 
-### `npm test`
+## Prerequisites
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+- .NET 10 SDK
+- Node.js 20+
+- SQL Server LocalDB (included with Visual Studio)
+- A Google Cloud project with OAuth 2.0 credentials
 
-### `npm run build`
+## Backend Setup
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+**1. Clone the repo**
+```bash
+git clone https://github.com/Blanksora6/salson.git
+cd salson
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+**2. Add your Google OAuth credentials**
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+Create `kahoot/kahoot.Api/appsettings.Development.json`:
+```json
+{
+  "Authentication": {
+    "Google": {
+      "ClientId": "YOUR_GOOGLE_CLIENT_ID",
+      "ClientSecret": "YOUR_GOOGLE_CLIENT_SECRET"
+    }
+  }
+}
+```
 
-### `npm run eject`
+**3. Run migrations**
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+Open Package Manager Console in Visual Studio, set default project to `kahoot.Infrastructure`:
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+**4. Run the backend**
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Set startup profile to `http` and press F5. Backend runs on `http://localhost:5187`.
 
-## Learn More
+## Frontend Setup
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+```bash
+cd salson-client
+npm install
+npm start
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+Frontend runs on `http://localhost:3000`.
 
-### Code Splitting
+## Google OAuth Setup
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+In Google Cloud Console, add these to your OAuth 2.0 client:
 
-### Analyzing the Bundle Size
+- Authorized JavaScript origins: `http://localhost:5187`
+- Authorized redirect URIs: `http://localhost:5187/signin-google`
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## Architecture Decisions
 
-### Making a Progressive Web App
+**Why three .NET projects?**
+Layered architecture — `kahoot.Core` has zero dependencies, `kahoot.Infrastructure` handles data access, `kahoot.Api` is the entry point. Swapping the database only touches Infrastructure.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+**Why SignalR instead of polling?**
+Real-time games require sub-second updates. Polling would mean players refreshing to see new questions — SignalR maintains a persistent WebSocket connection so the server pushes events instantly to all connected clients.
 
-### Advanced Configuration
+**Why cookie-based auth instead of JWT?**
+Simpler cross-origin setup for a same-network development environment. Cookies carry automatically on every request without client-side token management.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+**Why non-unique join codes?**
+Kahoot-style 6-digit codes would exhaust a globally unique pool quickly. Codes are only unique among active (`Lobby` or `Active`) sessions — finished sessions free their codes for reuse.
 
-### Deployment
+## Entity Relationship
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+7 entities: `Users`, `Quizzes`, `Questions`, `AnswerOptions`, `GameSessions`, `GameParticipants`, `ParticipantAnswers`.
 
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+See `Kahoot_ERD.pdf` for the full schema diagram.
